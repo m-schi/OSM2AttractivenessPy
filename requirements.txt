@@ -1,4 +1,8 @@
 geopandas
 pandas
+numpy
 shapely
 pyyaml
+matplotlib
+plotly
+osmium

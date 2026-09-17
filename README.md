@@ -1,207 +1,68 @@
-# OSM2Attractiveness
+# OSM2Attractiveness (Python)
 
-OSM2Attractiveness is a geodata processing workflow that converts OpenStreetMap (OSM) data into zone-level attractiveness indicators. It is originally developed by the [Karlsruhe Institute of Technology (KIT), Institute for Transport Studies](https://www.ifv.kit.edu/english/index.php).
+Pure-Python implementation of [OSM2Attractiveness](https://github.com/kit-ifv/OSM2Attractiveness) by the [KIT Institute for Transport Studies](https://www.ifv.kit.edu/english/index.php). For methodology, background and general documentation see the original project.
 
-The pipeline is intended for transport and spatial analysis use cases where destinations (e.g., shopping, services, leisure, health) need to be represented as comparable attractiveness values per zone.
+This fork replaces R and Osmosis (Java) with Python equivalents so the entire pipeline runs with a single `pip install`.
 
-At a high level, the workflow contains three stages:
+| Component | Original | This fork |
+|---|---|---|
+| OSM filtering | Osmosis (Java) | pyosmium |
+| Attractiveness calculation | R (data.table, sf) | pandas, geopandas |
+| Evaluation maps (static) | R (ggplot2) | matplotlib |
+| Evaluation maps (interactive) | R (leaflet) | plotly |
 
-1. Filter raw OSM data into category-specific OSM files.
-2. Convert those category files into standardized POI geodata.
-3. Aggregate POI information to zone-level attractiveness.
-
-The repository currently includes an example configuration for German attractiveness factors and a German example area of interest (Rastatt town). It is easily configurable to be used for the specific factors of other areas of interest.
-
-For methodological background see, e.g.:
-* Klinkhardt, C.; Wörle, T.; Briem, L.; Heilig, M.; Kagerbauer, M.; Vortisch, P. (2021). Using OpenStreetMap as a Data Source for Attractiveness in Travel Demand Models. Transportation research record, 2675 (8), 294–303. [doi:10.1177/0361198121997415](https://doi.org/10.1177/0361198121997415)  
-
-## Getting Started
-
-This section explains how to run the project on a local machine.
-
-### Prerequisites
-
-Required software:
-
-- Windows (current scripts are written and configured for Windows paths/commands)
-- Python 3.10+ (recommended)
-- R 4.2+ (for POI-to-attractiveness aggregation and evaluation scripts)
-- [Osmosis](https://wiki.openstreetmap.org/wiki/Osmosis/Quick_Install_(Windows)) (required for OSM filtering)
-- QGIS or other GIS software to repair buildings geometries
-
-Python packages (see [requirements.txt](requirements.txt)): geopandas, pandas, shapely, pyyaml.
-
-R packages used by the make scripts: this.path, yaml, data.table, sf
-
-Data prerequisites:
-
-- A raw OSM PBF file, available e.g. by [Geofabrik](https://download.geofabrik.de/)
-- attractiveness-factors
-- A zones layer (GeoJSON or similar)
+All filter definitions, configuration files and data formats are unchanged.
 
 
-### Installation
-
-1. Clone the repository.
+## Installation
 
 ```sh
-git clone https://github.com/kit-ifv/osm2attractiveness.git
-cd osm2attractivites
-```
-
-2. (Recommended) Create and activate a virtual environment.
-
-```sh
+git clone https://github.com/m-schi/OSM2AttractivenessPy.git
+cd OSM2AttractivenessPy
 python -m venv .venv
-.venv\Scripts\activate
-```
-
-3. Install Python dependencies.
-
-```sh
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Install R dependencies (example).
-
-```r
-install.packages(c("this.path", "yaml", "data.table", "sf"))
-```
-
-5. Adapt the config file in [config](config) or create your own by copying an example: [config/config_rastatt_example.yaml](config/config_rastatt_example.yaml)
+Requirements: Python 3.10+. All dependencies are in [requirements.txt](requirements.txt).
 
 
 ## Usage
 
-Run the workflow from repository root in the following order.
-
-### 1) Filter OSM by Categories
-
-Creates category-specific `.osm` files in `data/osm-filtered`.
+Adapt [config/config_rastatt_example.yaml](config/config_rastatt_example.yaml) or create your own config, then run from the repository root:
 
 ```sh
-python src/make/FilterOSM.py config_rastatt_example
-```
+# 1) Filter OSM by categories
+python src/make/FilterOSM_pyosmium.py config_rastatt_example
 
-Notes:
-
-- The script first creates an area extract from the raw `.osm.pbf` using the configured bounding box.
-- If no config argument is passed, all scripts default to `config_rastatt_example`.
-- Filters use the syntax described in [Osmosis docs](https://wiki.openstreetmap.org/wiki/Osmosis/Detailed_Usage_0.48#--tag-filter_(--tf)). Filters are logical `OR`, i.e., only one conditions needs to be fulfilled.
-- Filter files support multi-step filters: each non-empty line in `filter_<Category>.txt` or `reject_<Category>.txt` is applied as an additional `--tag-filter` step. In this way, logical `AND` conditions are can be achieved.
-
-Example (`filter_SportsHall.txt`):
-
-```txt
-leisure=sports_centre
-building=* building:part=yes
-```
-
-### 2) Convert Filtered OSM Data to POIs
-
-Creates standardized points-of-interest files (GeoJSON) and a processed buildings file.
-
-```sh
+# 2) Convert filtered OSM to POIs
 python src/make/OSM2POIs.py config_rastatt_example
+
+# 3) Calculate zone attractiveness
+python src/make/POIs2attractiveness.py config_rastatt_example
+
+# Optional: generate evaluation maps
+python src/eval/eval_maps.py config_rastatt_example
 ```
 
-### 3) Calculate Zone Attractiveness
-
-Aggregates POIs to zone-level attractiveness numbers (CSV file). As an intermediate step, POIs with attractiveness values are created and exported as well (GPKG file).
-
-```sh
-Rscript src/make/POIs2attractiveness.r config_rastatt_example
-```
+The `osmosis_bin` path in the YAML config is no longer needed and is ignored.
 
 
-### Optional: Evaluation Scripts
+## Data Prerequisites
 
-Generate maps with attractiveness value per activity (zone- and grid-based)
+- A raw OSM PBF file — downloaded automatically from [Geofabrik](https://download.geofabrik.de/) when `osm_download_url` is set in the config. Or place it manually under `data/osm-raw/`.
+- Attractiveness factors (sample included in `config/locale/`)
+- A zones layer (GeoJSON or similar)
+- Optional: QGIS to repair buildings geometries (see [original project](https://github.com/kit-ifv/OSM2Attractiveness) for details)
 
-```sh
-Rscript src/eval/eval_maps.r config_rastatt_example
-```
-
-
-## Folder Structure
-
-### [config](config)
-
-Area-specific configuration files and filter definitions:
-
-- Main run configs (bounding box, paths, CRS, exclusions)
-- Locale/config support files (e.g., POI parameters, attractiveness factors)
-- OSM filter rule files in [config/filters](config/filters)
-
-### [data](data)
-
-Input and output data folders:
-
-- `osm-raw`: raw OSM PBF sources
-- `osm-filtered`: category-level OSM extracts
-- `pois`: generated POI files
-- `attractiveness*`: attractiveness calculation outputs
-
-### [src/make](src/make)
-
-Core processing scripts:
-
-- `FilterOSM.py`
-- `OSM2POIs.py`
-- `POIs2attractiveness.r`
-
-### [src/eval](src/eval)
-
-Evaluation and QA scripts for generated POIs/attractiveness. They are in draft status.
-
-### [docs](docs)
-
-Project documentation and supporting notes. To be extended.
-
-## Notes and Limitations
-
-- Only dummy attractiveness factors are included. Replace them with validated attractiveness factors. For Germany, we recommend Ver_Bau  as a suitable reference: https://bbwsoftware.de/
-- Buildings input often requires cleaning (repairing geometries) in a GIS before use (open the `multipolygons` layer in QGIS and run the tool `fixgeometries` with the following parameters: `INPUT='Region_Buildings.osm|layername=multipolygons' METHOD=1 OUTPUT='Region_Buildings_repaired.gpkg'`).
-- Some filter categories exist that are currently not used in the attractiveness value generation (e.g., parking, hotels, tourism, EV charging, mailbox). They may be useful for other analyses.
-- Workplaces are currently not generated by this workflow and should be integrated from other data/methods.
-- Output should always be validated for local plausibility because OSM tagging quality and semantics vary by region.
-- Generally, the attractiveness values are based on the average of similar places. Places that - for any reason - are in some way "special" may have attractiveness values that are orders of magnitude larger. Especially, care needs to be taken with respect to how tourist sites should be considered (depends on the aim of the travel demand model).
-
-## Roadmap
-
-The following are possible improvements for this workflow. We welcome contributions.
-
-### Methodological
-
-- Extend support to additional countries with reusable locale/config packages.
-- Improve automatic detection/handling of unusually large specific-purpose areas (outliers in OSM tagging).
-- Improve floor-area estimation logic, especially for multi-level buildings and partial-building occupancy.
-- Improve building-height and vertical-structure assumptions.
-- Add more transparent intermediate components/summands for easier plausibility checks.
-- Create validated open-source data for attractiveness factors.
-
-### Technical
-
-- Simplify code.
-- Use config in evaluation scripts.
-- Add automated tests.
-- Improve multi-OS support (current implementation is Windows-focused concerning Osmosis run commands).
-- Evaluate migration from Osmosis (legacy) to Osmium or other maintained OSM-tooling.
-
-## Contributing
-
-Contributions are welcome. Please open an issue for bugs, data-quality edge cases, or methodological suggestions before major changes.
-
-When contributing code, include:
-
-- A short rationale for the change
-- Any config/data assumptions
-- Validation notes (what was tested and on which area)
 
 ## License
 
-This project is licensed as described in [LICENSE.md](LICENSE.md).
+See [LICENSE.md](LICENSE.md).
+
 
 ## Acknowledgments
 
-Thanks to the OpenStreetMap community for providing the data.
+- Original workflow by [KIT Institute for Transport Studies](https://github.com/kit-ifv/OSM2Attractiveness).
+- Python port created with assistance from Claude (Anthropic).
+- Thanks to the OpenStreetMap community for providing the data.
