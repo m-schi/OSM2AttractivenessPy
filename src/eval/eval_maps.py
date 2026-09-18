@@ -45,10 +45,12 @@ def main():
     if run_subdir:
         out_dir = out_base / run_subdir
     else:
-        out_dir = find_latest_run_dir(out_base) or out_base
-
-    maps_dir = out_dir / "Maps"
-    maps_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = find_latest_run_dir(out_base)
+        if out_dir is None:
+            raise FileNotFoundError(
+                f"No completed run directory found in {out_base}. "
+                "Run the attractiveness calculation first (POIs2attractiveness.py)."
+            )
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     csv_attr = out_dir / "attractiveness.csv"
@@ -63,6 +65,9 @@ def main():
                      (gpkg_poi, "POI GPKG"), (csv_detail, "Detail CSV")]:
         if not p.exists():
             raise FileNotFoundError(f"{label} not found: {p}")
+
+    maps_dir = out_dir / "Maps"
+    maps_dir.mkdir(parents=True, exist_ok=True)
 
     attr = pd.read_csv(str(csv_attr))
     purposes = [c for c in attr.columns if c != "zoneId"]

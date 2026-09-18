@@ -54,8 +54,12 @@ def find_latest_run_dir(base: Path) -> Optional[Path]:
     base = Path(base)
     if not base.is_dir():
         return None
-    runs = sorted([d for d in base.iterdir() if d.is_dir() and d.name.startswith("run_")],
-                  key=lambda d: d.name, reverse=True)
+    runs = sorted(
+        [d for d in base.iterdir()
+         if d.is_dir() and d.name.startswith("run_")
+         and (d / "attractiveness.csv").exists()],
+        key=lambda d: d.name, reverse=True,
+    )
     return runs[0] if runs else None
 
 
