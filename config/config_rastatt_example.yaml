@@ -18,7 +18,6 @@ percentile_imputation: 0.15 # If a POI has no area information but area is requi
 
 paths: # you may use absolute or relative paths; for relative paths, the base path is the current working directory when running the script
   osm_download_url: https://download.geofabrik.de/europe/germany/baden-wuerttemberg-latest.osm.pbf  # PBF is auto-downloaded to osm_raw_base if missing; remove this line to skip auto-download
-  osmosis_bin: C:/Program Files (x86)/Osmosis/osmosis-0.49.2/bin  # legacy, ignored by FilterOSM_pyosmium.py
   osm_raw_base: data/osm-raw/germany-240101
   filter_dir: config/filters/DE
   osm_filtered_dir: data/osm-filtered

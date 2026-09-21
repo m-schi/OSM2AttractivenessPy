@@ -30,13 +30,36 @@ def resolve_path(path_value):
     return os.path.abspath(path_value)
 
 
-def write_with_retry(output_path, write_fn, max_attempts=5, base_delay=1.5):
-    """Runs write_fn() (which opens its own osmium.SimpleWriter and writes to
-    output_path) with retries.
+def is_valid_existing_file(path):
+    """True if *path* exists and is non-empty.
 
-    Works around a Windows-only pyosmium/libosmium timing issue where opening
-    a SimpleWriter shortly after a previous one (in the same directory, same
-    process) intermittently fails with:
+    An empty file at this stage is always the leftover of a previous
+    interrupted/failed run (a completed run, even with zero matched OSM
+    objects, still writes a small but non-empty XML/PBF file -- see
+    write_with_retry). Treating an empty file as "not there yet" makes the
+    skip-if-exists logic below self-healing instead of getting stuck skipping
+    a broken file forever.
+    """
+    return os.path.exists(path) and os.path.getsize(path) > 0
+
+
+def write_with_retry(output_path, write_fn, max_attempts=5, base_delay=1.5):
+    """Runs write_fn(tmp_path) (which opens its own osmium.SimpleWriter and
+    writes to tmp_path) with retries, then atomically renames tmp_path to
+    output_path once the write has completed successfully.
+
+    Writing to a temporary path first and only renaming on success ensures
+    that output_path never ends up as a truncated/empty file if the write is
+    interrupted (crash, Ctrl+C, disk error, ...) -- a half-written file at
+    output_path would otherwise be mistaken for a completed, valid result by
+    the "already exists, skipping" check in main(), and by downstream
+    consumers such as OSM2POIs.py (which fails with a cryptic pyogrio
+    "not recognized as being in a supported file format" error on an empty
+    .osm file).
+
+    Separately, this works around a Windows-only pyosmium/libosmium timing
+    issue where opening a SimpleWriter shortly after a previous one (in the
+    same directory, same process) intermittently fails with:
         RuntimeError: Open failed for '<path>': The system cannot move the
         file to a different disk drive.
     This happens even though source and destination are on the same drive;
@@ -44,26 +67,41 @@ def write_with_retry(output_path, write_fn, max_attempts=5, base_delay=1.5):
     threads not having fully released the directory/file yet. A short
     backoff before retrying reliably resolves it.
     """
+    # osmium infers the output format from the filename suffix, so the temp
+    # path must keep the same suffix (e.g. ".osm", ".osm.pbf") rather than
+    # just appending ".tmp" to the end.
+    root, ext = os.path.splitext(output_path)
+    tmp_path = f"{root}.tmp{ext}"
     last_err = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            write_fn()
-            return
-        except RuntimeError as e:
-            if "different disk drive" not in str(e):
-                raise
-            last_err = e
-            if os.path.exists(output_path):
-                try:
-                    os.remove(output_path)
-                except OSError:
-                    pass
-            if attempt < max_attempts:
-                wait = base_delay * attempt
-                print(f"\n    Write failed (attempt {attempt}/{max_attempts}), "
-                      f"retrying in {wait:.1f}s: {e}")
-                time.sleep(wait)
-    raise last_err
+    try:
+        for attempt in range(1, max_attempts + 1):
+            try:
+                write_fn(tmp_path)
+                break
+            except RuntimeError as e:
+                if "different disk drive" not in str(e):
+                    raise
+                last_err = e
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+                if attempt < max_attempts:
+                    wait = base_delay * attempt
+                    print(f"\n    Write failed (attempt {attempt}/{max_attempts}), "
+                          f"retrying in {wait:.1f}s: {e}")
+                    time.sleep(wait)
+        else:
+            raise last_err
+    except BaseException:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
+    os.replace(tmp_path, output_path)
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +246,8 @@ def create_bbox_extract(input_path, output_path, bbox):
     # -- pass 4: write the extract ---------------------------------------------
     print("  Pass 4/4: writing extract ...")
 
-    def _do_write():
-        with osmium.SimpleWriter(str(output_path)) as writer:
+    def _do_write(tmp_path):
+        with osmium.SimpleWriter(str(tmp_path)) as writer:
             for entity in osmium.FileProcessor(str(input_path)):
                 if isinstance(entity, osmium.osm.Node) and entity.id in all_node_ids:
                     writer.add_node(entity)
@@ -274,8 +312,8 @@ def filter_category(extract_path, output_path, accept_steps, reject_steps):
     all_node_ids = matched_node_ids | required_node_ids
 
     # -- pass 3: write output ----------------------------------------------
-    def _do_write():
-        with osmium.SimpleWriter(str(output_path)) as writer:
+    def _do_write(tmp_path):
+        with osmium.SimpleWriter(str(tmp_path)) as writer:
             for entity in osmium.FileProcessor(str(extract_path)):
                 if isinstance(entity, osmium.osm.Node) and entity.id in all_node_ids:
                     writer.add_node(entity)
@@ -353,7 +391,7 @@ def main():
     print(f"Output folder: {path_export}")
 
     # ---- Step 1: create / reuse bbox extract ---------------------------------
-    if os.path.exists(path_extract):
+    if is_valid_existing_file(path_extract):
         print(f"\nBbox extract already exists, reusing: {path_extract}")
     else:
         print(f"\nCreating bbox extract ...")
@@ -395,7 +433,7 @@ def main():
             continue
 
         output_file = os.path.join(path_export, f"{area_name}_{category}.osm")
-        if os.path.exists(output_file):
+        if is_valid_existing_file(output_file):
             print(f"[{i}/{total}] {category} -- already exists, skipping")
             continue
 

@@ -35,9 +35,11 @@ def main():
         return Path(p).expanduser().resolve()
 
     zones_file = resolve(area_cfg["paths"]["zones_file"])
+    crs_proj_out = area_cfg.get("crs_proj_out")
     out_base = resolve(area_cfg["paths"]["attractiveness_output_root"]) / area_cfg["paths"]["attractiveness_output_sub_attractiveness"]
 
     eval_cfg = area_cfg.get("eval", {}).get("attractiveness_maps", {})
+    zone_type_field = eval_cfg.get("zone_type_field", "typ")
     zone_types_cfg = as_char_vec(eval_cfg.get("zone_types"))
     grid_default = float(eval_cfg.get("grid_cellsize_m_default", 1000))
     grid_by_type = as_named_numeric(eval_cfg.get("grid_cellsize_m_by_type", {"1": 1000, "2": 2000, "3": 5000}))
@@ -74,7 +76,17 @@ def main():
     assert purposes, "No purpose columns in attractiveness.csv."
 
     zones = gpd.read_file(str(zones_file))
-    zones["NO"] = zones["NO"].astype(str); zones["typ"] = zones["typ"].astype(str)
+    if crs_proj_out and zones.crs and zones.crs.is_geographic:
+        # The grid builder below treats grid_cellsize_m_* as meters, so zones
+        # (and everything reprojected to match them, i.e. the POI layer) must
+        # be in a projected CRS. Zone files are not guaranteed to already be
+        # in crs_proj_out (unlike the POI pipeline output), so reproject here.
+        zones = zones.to_crs(crs_proj_out)
+    assert zone_type_field in zones.columns, (
+        f"Zone type field '{zone_type_field}' not found in zones file {zones_file}. "
+        "Set eval.attractiveness_maps.zone_type_field in the config to the correct column name."
+    )
+    zones["NO"] = zones["NO"].astype(str); zones["typ"] = zones[zone_type_field].astype(str)
     attr["zoneId"] = attr["zoneId"].astype(str)
     zones = zones.merge(attr, left_on="NO", right_on="zoneId", how="left")
 
