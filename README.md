@@ -50,9 +50,7 @@ python src/eval/export_gis.py config_rastatt_example
 
 `export_gis.py` joins `attractiveness.csv` onto the zone geometries and writes
 `attractiveness_zones.geojson`/`.gpkg` plus QGIS style files (`.qml`) into a
-`GIS/` subfolder of the run directory — one graduated style per attractiveness
-purpose (in `GIS/styles/`), with the first purpose applied as the default
-style shown when the layer is opened.
+`GIS/` subfolder of the run directory.
 
 The `osmosis_bin` path in the YAML config is no longer needed and is ignored.
 
